@@ -2,8 +2,7 @@ import argparse
 import io
 import json
 
-from musicdb import get_library_bytes, merge_in, parse_boma, parse_hfma, parse_iama, parse_iAma, parse_itma, parse_lama, \
-    parse_lAma, parse_lpma, parse_lPma, parse_ltma, parse_plma, read_next_chunk
+from musicdb import get_library_bytes, merge_in, parse_boma, parse_container, parse_hfma, parse_master, read_next_chunk
 
 # See # https://github.com/rinsuki/musicdb2sqlite for the inspiration
 # for this script and library.
@@ -53,7 +52,7 @@ while library_bytestream.readable():
         merge_in(library, library_file_data)
 
     elif chunk_type == b"plma":
-        plma_data, library_data = parse_plma(chunk_bytes)
+        plma_data, library_data = parse_master(chunk_bytes)
 
         subtypes_parsed = set()
         for i in range(plma_data["boma_sections"]):
@@ -67,105 +66,109 @@ while library_bytestream.readable():
             if ld is not None:
                 merge_in(library_data, ld)
             else:
-                print(f"Unknown subtype ({md["boma_subtype"]}) for plma section!")
+                print(f"Unknown library subtype ({md["boma_subtype"]}) for plma section!")
 
         merge_in(library, library_data)
 
     # Album data:
     elif chunk_type == b"lama":
-        lama_data, albums_data = parse_lama(chunk_bytes)
+        lama_data, albums_data = parse_master(chunk_bytes)
 
         merge_in(library.setdefault("album_data", {}), albums_data)
 
-    elif chunk_type == b"iama":
-        iama_data, album_data = parse_iama(chunk_bytes)
+        for _ in range(lama_data["iama_sections"]):
+            _, ccb = read_next_chunk(library_bytestream)
+            iama_data, album_data = parse_container(ccb, b"iama")
 
-        subtypes_parsed = set()
-        for i in range(iama_data["boma_sections"]):
-            _, cb = read_next_chunk(library_bytestream)
-            md, ad = parse_boma(cb)
+            subtypes_parsed = set()
+            for i in range(iama_data["boma_sections"]):
+                _, cb = read_next_chunk(library_bytestream)
+                md, ad = parse_boma(cb)
 
-            if md["boma_subtype"] in subtypes_parsed:
-                print(f"Duplicate subtype ({md["boma_subtype"]}) for {album_data.get("album_id")}!")
-            subtypes_parsed.add(md["boma_subtype"])
+                if md["boma_subtype"] in subtypes_parsed:
+                    print(f"Duplicate subtype ({md["boma_subtype"]}) for {album_data.get("album_id")}!")
+                subtypes_parsed.add(md["boma_subtype"])
 
-            if ad is not None:
-                merge_in(album_data, ad)
-            else:
-                print(f"Unknown subtype ({md["boma_subtype"]}) for {album_data.get("album_id")}!")
+                if ad is not None:
+                    merge_in(album_data, ad)
+                else:
+                    print(f"Unknown album subtype ({md["boma_subtype"]}) for {album_data.get("album_id")}!")
 
-        library.setdefault("album_data", {}).setdefault("albums", []).append(album_data)
+            library.setdefault("album_data", {}).setdefault("albums", []).append(album_data)
 
     # Artist data:
     elif chunk_type == b"lAma":
-        lAma_data, artists_data = parse_lAma(chunk_bytes)
+        lAma_data, artists_data = parse_master(chunk_bytes)
 
         merge_in(library.setdefault("artist_data", {}), artists_data)
 
-    elif chunk_type == b"iAma":
-        iAma_data, artist_data = parse_iAma(chunk_bytes)
+        for _ in range(lAma_data["iAma_sections"]):
+            _, ccb = read_next_chunk(library_bytestream)
+            iAma_data, artist_data = parse_container(ccb, b"iAma")
 
-        subtypes_parsed = set()
-        for i in range(iAma_data["boma_sections"]):
-            _, cb = read_next_chunk(library_bytestream)
-            md, artd = parse_boma(cb)
+            subtypes_parsed = set()
+            for _ in range(iAma_data["boma_sections"]):
+                _, cb = read_next_chunk(library_bytestream)
+                md, artd = parse_boma(cb)
 
-            if md["boma_subtype"] in subtypes_parsed:
-                print(f"Duplicate subtype ({md["boma_subtype"]}) for {artist_data.get("album_id")}!")
-            subtypes_parsed.add(md["boma_subtype"])
+                if md["boma_subtype"] in subtypes_parsed:
+                    print(f"Duplicate subtype ({md["boma_subtype"]}) for {artist_data.get("album_id")}!")
+                subtypes_parsed.add(md["boma_subtype"])
 
-            if artd is not None:
-                merge_in(artist_data, artd)
-            else:
-                print(f"Unknown subtype ({md["boma_subtype"]}) for {artist_data.get("artist_id")}!")
+                if artd is not None:
+                    merge_in(artist_data, artd)
+                else:
+                    print(f"Unknown artist subtype ({md["boma_subtype"]}) for {artist_data.get("artist_id")}!")
 
-        library.setdefault("artist_data", {}).setdefault("artists", []).append(artist_data)
+            library.setdefault("artist_data", {}).setdefault("artists", []).append(artist_data)
 
     # Track data:
     elif chunk_type == b"ltma":
-        ltma_data, tracks_data = parse_ltma(chunk_bytes)
+        ltma_data, tracks_data = parse_master(chunk_bytes)
 
         merge_in(library.setdefault("track_data", {}), tracks_data)
 
-    elif chunk_type == b"itma":
-        itma_data, track_data = parse_itma(chunk_bytes)
+        for _ in range(ltma_data["itma_sections"]):
+            _, ccb = read_next_chunk(library_bytestream)
+            itma_data, track_data = parse_container(ccb, b"itma")
 
-        subtypes_parsed = set()
-        for i in range(itma_data["boma_sections"]):
-            _, cb = read_next_chunk(library_bytestream)
-            md, td = parse_boma(cb)
+            subtypes_parsed = set()
+            for _ in range(itma_data["boma_sections"]):
+                _, cb = read_next_chunk(library_bytestream)
+                md, td = parse_boma(cb)
 
-            if md["boma_subtype"] in subtypes_parsed:
-                # Duplicate sections seem to contain invalid data? Skip them!
-                continue
-            subtypes_parsed.add(md["boma_subtype"])
+                if md["boma_subtype"] in subtypes_parsed:
+                    # Duplicate sections seem to contain invalid data? Skip them!
+                    continue
+                subtypes_parsed.add(md["boma_subtype"])
 
-            if td is not None:
-                merge_in(track_data, td)
-            else:
-                print(f"Unknown subtype ({md["boma_subtype"]}) for {track_data.get("track_persistent_id")}!")
+                if td is not None:
+                    merge_in(track_data, td)
+                else:
+                    print(f"Unknown track subtype ({md["boma_subtype"]}) for {track_data.get("track_persistent_id")}!")
 
-        library.setdefault("track_data", {}).setdefault("tracks", []).append(track_data)
+            library.setdefault("track_data", {}).setdefault("tracks", []).append(track_data)
 
     # Playlist data:
     elif chunk_type == b"lPma":
-        lPma_data, playlists_data = parse_lPma(chunk_bytes)
+        lPma_data, playlists_data = parse_master(chunk_bytes)
 
         merge_in(library.setdefault("playlist_data", {}), playlists_data)
 
-    elif chunk_type == b"lpma":
-        lpma_data, playlist_data = parse_lpma(chunk_bytes)
+        for _ in range(lPma_data["lpma_sections"]):
+            _, ccb = read_next_chunk(library_bytestream)
+            lpma_data, playlist_data = parse_container(ccb, b"lpma")
 
-        for i in range(lpma_data["boma_sections"]):
-            _, cb = read_next_chunk(library_bytestream)
-            md, pd = parse_boma(cb)
+            for _ in range(lpma_data["boma_sections"]):
+                _, cb = read_next_chunk(library_bytestream)
+                md, pd = parse_boma(cb)
 
-            if pd is not None:
-                merge_in(playlist_data, pd)
-            else:
-                print(f"Unknown subtype ({md["boma_subtype"]}) for {playlist_data.get("playlist_id")}!")
+                if pd is not None:
+                    merge_in(playlist_data, pd)
+                else:
+                    print(f"Unknown playlist subtype ({md["boma_subtype"]}) for {playlist_data.get("playlist_id")}!")
 
-        library.setdefault("playlist_data", {}).setdefault("playlists", []).append(playlist_data)
+            library.setdefault("playlist_data", {}).setdefault("playlists", []).append(playlist_data)
 
     else:
         print(f"Skipping unexpected chunk: {chunk_type}!")
